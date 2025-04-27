@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube STT</title>
+  <style>
+    body {
+      width: 450px;
+      padding: 10px;
+      font-family: Arial, sans-serif;
+      font-size: 16px; /* 폰트 크기 키움 */
+    }
+    #transcript {
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      height: 220px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      background-color: #f9f9f9;
+      font-size: 15px;
+      color: #333;
+      position: relative;
+    }
+    #placeholder {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #999;
+      pointer-events: none;
+    }
+    button {
+      margin-top: 10px;
+      font-size: 15px;
+      padding: 6px 12px;
+    }
+  </style>
+</head>
+<body>
+  <h2>실시간 강의 STT</h2>
+
+  <div id="transcript">
+    <div id="placeholder">여기에 전사 결과가 표시됩니다.</div>
+  </div>
+
+  <button id="start">STT 시작</button>
+  <button id="stop">STT 중지</button>
+
+  <script src="popup.js"></script>
+</body>
+</html>

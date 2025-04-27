@@ -1,0 +1,14 @@
+{
+    "manifest_version": 3,
+    "name": "YouTube Lecture Transcriber",
+    "version": "1.0",
+    "description": "Real-time transcription for YouTube lectures using Whisper.",
+    "permissions": ["tabCapture", "storage", "scripting"],
+    "host_permissions": ["<all_urls>"],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "action": {
+      "default_popup": "popup.html"
+    }
+  }

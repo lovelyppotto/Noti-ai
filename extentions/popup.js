@@ -85,3 +85,10 @@ document.getElementById('stop').addEventListener('click', () => {
   audioBufferQueue = []; // 큐도 비우기
   console.log("[녹음 중지]");
 });
+
+// 요약 버튼
+document.getElementById("summaryBtn").addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send("__SUMMARY__");
+  }
+});

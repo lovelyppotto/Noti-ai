@@ -63,6 +63,7 @@ import os
 from collections import deque
 
 import torch
+import re
 import numpy as np
 from silero_vad import VADIterator
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -92,13 +93,24 @@ model      = AutoModelForSpeechSeq2Seq.from_pretrained(
     low_cpu_mem_usage=True
 ).to(device)
 
+# VAD 모델 초기화
+vad_model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
+                                  model='silero_vad',
+                                  force_reload=True)
+
+# VAD 관련 함수
+get_speech_timestamps, _, _, _, _ = utils
+vad_model = vad_model.to(device)
+
+# 무시할 단어 리스트
+IGNORE_WORDS = ["you", "음", "어", "음..", "어..", "그.."]
+
 # -------------------------------------------------------------------
 # 2. 상태 캐시
 # -------------------------------------------------------------------
 token_hist  = deque(maxlen=224)     # Whisper 프롬프트용 토큰 224개
 MAX_CHARS   = 20_000                # 자막 전체 캐시(요약에 사용)
 history_txt = ""                    # 실시간 누적 자막
-vad = VADIterator(sample_rate=16000)
 
 # -------------------------------------------------------------------
 # 3. 보조 함수
@@ -107,10 +119,48 @@ def decode_audio(binary_audio: bytes) -> np.ndarray:
     """Float32 PCM 으로 변환"""
     return np.frombuffer(binary_audio, dtype=np.float32)
 
+def is_speech(audio_np: np.ndarray, sample_rate=16000) -> bool:
+    """VAD를 사용하여 음성인지 확인"""
+    # NumPy 배열을 torch 텐서로 변환하고 올바른 장치로 이동
+    audio_tensor = torch.tensor(audio_np).to(device)
+    
+    timestamps = get_speech_timestamps(
+        audio_tensor, 
+        vad_model, 
+        sampling_rate=sample_rate,
+        min_speech_duration_ms=250,
+        min_silence_duration_ms=100
+    )
+    return len(timestamps) > 0
+
+def filter_text(text: str) -> str:
+    """무의미한 단어와 배경음악 표현 필터링"""
+    # 짧은 무의미 단어 필터링
+    for word in IGNORE_WORDS:
+        text = re.sub(r'\b' + re.escape(word) + r'\b', '', text)
+    
+    # "배경음악", "음악" 등이 포함된 문장 필터링
+    text = re.sub(r'[^\s]*(?:배경음악|음악)[^\s]*', '', text)
+    
+    # 2글자 미만의 단어만 있는 문장 필터링 (영어)
+    text = re.sub(r'\b[a-zA-Z]{1,2}\b', '', text)
+    
+    # 공백 정리
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
 def transcribe(audio_np: np.ndarray) -> str:
-    """Whisper 전사 + 토큰 히스토리 유지"""
+    """Whisper 전사 + 토큰 히스토리 유지 + 필터링"""
     global history_txt
-    prompt = tokenizer.decode(list(token_hist)) + " 영어 고유명사 신경쓰기"
+    
+    # VAD로 음성 여부 확인
+    if not is_speech(audio_np):
+        return ""  # 음성이 아니면 빈 문자열 반환
+    
+    # 개선된 프롬프트
+    prompt = (tokenizer.decode(list(token_hist)) + 
+             " 영어 고유명사 신경쓰기. 배경음악은 무시하고 사람 음성만 인식하세요.")
 
     inputs = processor(
         audio_np,
@@ -126,11 +176,18 @@ def transcribe(audio_np: np.ndarray) -> str:
 
     pred_ids = model.generate(feats)
     text     = processor.batch_decode(pred_ids, skip_special_tokens=True)[0]
-
+    
+    # 텍스트 필터링
+    filtered_text = filter_text(text)
+    
+    # 빈 결과면 처리하지 않음
+    if not filtered_text:
+        return ""
+        
     # 토큰‧문자열 캐시 갱신
-    token_hist.extend(tokenizer.encode(text, add_special_tokens=False))
-    history_txt  = (history_txt + text + " ")[-MAX_CHARS:]
-    return text.strip()
+    token_hist.extend(tokenizer.encode(filtered_text, add_special_tokens=False))
+    history_txt  = (history_txt + filtered_text + " ")[-MAX_CHARS:]
+    return filtered_text.strip()
 
 async def summarize(full_text: str) -> str:
     """GPT-4.1-mini 한글 요약 (5줄 이내 불릿)"""
@@ -172,6 +229,7 @@ async def websocket_endpoint(ws: WebSocket):
             # ② 요약 요청
             elif "text" in data and data["text"] == "__SUMMARY__":
                 summary = await summarize(history_txt)
+                print("[요약]\n" + summary)
                 await ws.send_text("[요약]\n" + summary)
 
     except WebSocketDisconnect:

@@ -22,6 +22,9 @@ document.getElementById('start').addEventListener('click', async () => {
       audioContext = new AudioContext({ sampleRate: 16000 });
       mediaStreamSource = audioContext.createMediaStreamSource(stream);
 
+      // (1) 원본 오디오를 직접 재생
+      mediaStreamSource.connect(audioContext.destination);
+
       processor = audioContext.createScriptProcessor(4096, 1, 1);
       mediaStreamSource.connect(processor);
       processor.connect(audioContext.destination);

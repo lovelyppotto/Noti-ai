@@ -1,64 +1,3 @@
-# from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-# import torch
-# import numpy as np
-# from collections import deque
-# from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
-
-# app = FastAPI()
-
-# token_hist = deque(maxlen=224)          # O(224) 고정
-# MAX_CHARS = 2000                        # UI용 문자열 캐시 한도
-# history_txt = ""
-
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# processor = AutoProcessor.from_pretrained("openai/whisper-large-v3")
-# tokenizer    = processor.tokenizer
-# model = AutoModelForSpeechSeq2Seq.from_pretrained(
-#     "openai/whisper-large-v3",
-#     torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-#     low_cpu_mem_usage=True
-# ).to(device)
-
-# def decode_audio(binary_audio):
-#     audio_np = np.frombuffer(binary_audio, dtype=np.float32)
-#     return audio_np
-
-# def transcribe(audio_np):
-#     global history_txt
-#     inputs = processor(audio_np, sampling_rate=16000, return_tensors="pt", language="ko", task="transcribe", prompt=tokenizer.decode(list(token_hist))+"영어 고유명사 신경쓰기")
-#     input_features = inputs.input_features.to(device)
-
-#     if input_features.dtype != torch.float16 and device == "cuda":
-#         input_features = input_features.half()
-
-#     predicted_ids = model.generate(input_features)
-#     transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
-
-#      # ① token deque 갱신
-#     token_hist.extend(tokenizer(transcription).input_ids)
-
-#     # ② UI 캐시 문자열 제한
-#     history_txt = (history_txt + transcription + " ")[-MAX_CHARS:]
-#     return transcription
-
-# @app.websocket("/ws")
-# async def websocket_endpoint(websocket: WebSocket):
-#     await websocket.accept()
-#     print("Client connected")
-#     try:
-#         while True:
-#             message = await websocket.receive_bytes()
-#             try:
-#                 audio_np = decode_audio(message)
-#                 text = transcribe(audio_np)
-#                 await websocket.send_text(text)
-#                 print(f"Transcribed: {text}")
-#             except Exception as e:
-#                 print(f"Error during transcription: {e}")
-#                 await websocket.send_text(f"Error: {str(e)}")
-#     except WebSocketDisconnect:
-#         print("Client disconnected")
-# server.py  ---------------------------------------------------------
 import os
 from collections import deque
 
@@ -72,18 +11,13 @@ from transformers import (
     AutoModelForSpeechSeq2Seq,
     AutoTokenizer,
 )
-from openai import OpenAI                           # ↙ GPT-4.1-mini
+from openai import OpenAI                         
 
-# -------------------------------------------------------------------
-# 0. 환경 변수에서 OpenAI 키 읽기
-#    (터미널:  export OPENAI_API_KEY="sk-xxxx")
-# -------------------------------------------------------------------
+
 OPENAI_API_KEY = "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"
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# -------------------------------------------------------------------
-# 1. Whisper 모델‧토크나이저 준비
-# -------------------------------------------------------------------
+
 device     = "cuda" if torch.cuda.is_available() else "cpu"
 processor  = AutoProcessor.from_pretrained("openai/whisper-large-v3")
 tokenizer  = processor.tokenizer
@@ -103,18 +37,14 @@ get_speech_timestamps, _, _, _, _ = utils
 vad_model = vad_model.to(device)
 
 # 무시할 단어 리스트
-IGNORE_WORDS = ["you", "음", "어", "음..", "어..", "그.."]
+IGNORE_WORDS = ["음", "어", "음..", "어..", "그.."]
 
-# -------------------------------------------------------------------
-# 2. 상태 캐시
-# -------------------------------------------------------------------
+
 token_hist  = deque(maxlen=224)     # Whisper 프롬프트용 토큰 224개
 MAX_CHARS   = 20_000                # 자막 전체 캐시(요약에 사용)
 history_txt = ""                    # 실시간 누적 자막
 
-# -------------------------------------------------------------------
-# 3. 보조 함수
-# -------------------------------------------------------------------
+
 def decode_audio(binary_audio: bytes) -> np.ndarray:
     """Float32 PCM 으로 변환"""
     return np.frombuffer(binary_audio, dtype=np.float32)
@@ -210,7 +140,7 @@ async def summarize(full_text: str) -> str:
 # 4. FastAPI WebSocket 엔드포인트
 # -------------------------------------------------------------------
 app = FastAPI()
-
+audio_buffer = deque()
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
@@ -219,14 +149,23 @@ async def websocket_endpoint(ws: WebSocket):
         while True:
             data = await ws.receive()
 
-            # ① 오디오 조각
             if "bytes" in data:
                 audio_np = decode_audio(data["bytes"])
-                text     = transcribe(audio_np)
-                print(text)
-                await ws.send_text(text)
+                audio_buffer.append(audio_np)
 
-            # ② 요약 요청
+                # 누적된 전체 오디오 샘플 수 계산
+                total_samples = sum(chunk.shape[0] for chunk in audio_buffer)
+
+                # 1초(16000 샘플) 이상 모였을 때만 인식
+                if total_samples >= 16000:
+                    # 버퍼 연결 (하나의 큰 배열로)
+                    combined_audio = np.concatenate(list(audio_buffer))
+                    audio_buffer.clear()
+
+                    text = transcribe(combined_audio)
+                    print(text)
+                    await ws.send_text(text)
+
             elif "text" in data and data["text"] == "__SUMMARY__":
                 summary = await summarize(history_txt)
                 print("[요약]\n" + summary)

@@ -2,15 +2,10 @@ import os
 import subprocess
 import tempfile
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel, HttpUrl
+from ..models.videos import VideoReq
 from app.services.stt_service import transcribe_video
 
 router = APIRouter()
-
-# ---------- 요청 스키마 ----------
-class VideoReq(BaseModel):
-    url: HttpUrl
-    summarize: bool = False
 
 # ---------- 엔드포인트 ----------
 @router.post("/ai/stt")
@@ -26,7 +21,7 @@ async def stt_video(req: VideoReq, background_tasks: BackgroundTasks):
             "--audio-quality", "0",
             "--postprocessor-args", "-ar 16000 -ac 1",
             "-o", wav_path,
-            req.url
+            str(req.url)
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:

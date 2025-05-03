@@ -22,8 +22,7 @@ def transcribe(audio_np):
     global history_txt
     if not is_speech(audio_np):
         return ""
-    prompt = (tokenizer.decode(list(token_hist)) +
-              " 영어 고유명사 신경쓰기. 배경음악은 무시하고 사람 음성만 인식하세요.")
+    prompt = (" 영어 고유명사 신경쓰기. 배경음악은 무시하고 사람 음성만 인식하세요." +tokenizer.decode(list(token_hist)))
 
     inputs = processor(
         audio_np,

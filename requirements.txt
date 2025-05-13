@@ -44,9 +44,6 @@ soundfile==0.13.1
 starlette==0.46.2
 sympy==1.13.1
 tokenizers==0.21.1
-torch==2.5.1+cu121
-torchaudio==2.5.1+cu121
-torchvision==0.20.1+cu121
 tqdm==4.67.1
 transformers==4.51.3
 typing-inspection==0.4.0

@@ -1,0 +1,199 @@
+pipeline {
+  agent any
+
+  environment {
+    DOCKER_IMAGE = "sseon701/noti-ai"
+    DOCKER_TAG = "latest"
+    SSH_USER = "ubuntu"
+    SSH_CREDENTIAL = 'ec2'
+    GIT_REPO = 'https://lab.ssafy.com/noti/noti-ai.git'
+  }
+
+  stages {
+    stage('Checkout Code') {
+      steps {
+        git branch: 'develop',
+            url: "${GIT_REPO}",
+            credentialsId: 'GITLAB_CREDENTIALS_ID'
+      }
+    }
+
+    stage('Build & Push Docker Image') {
+      steps {
+        script {
+          withCredentials([
+            string(credentialsId: 'DOCKER_USERNAME', variable: 'DOCKER_USERNAME'),
+            string(credentialsId: 'DOCKER_PASSWORD', variable: 'DOCKER_PASSWORD')
+          ]) {
+            sh '''
+              docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+              echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+              docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Deploy to GPU Server') {
+      steps {
+        script {
+          withCredentials([
+            string(credentialsId: 'EC2_IP', variable: 'EC2_IP')
+          ]) {
+            sshagent(credentials: [SSH_CREDENTIAL]) {
+              sh '''
+                # 원격 서버에 디렉토리 생성 및 docker-compose.yml 파일 생성
+                ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
+                  mkdir -p ~/noti-ai && cd ~/noti-ai
+
+                  # 배포 실행
+                  docker compose down || true
+                  docker compose pull
+                  docker compose up -d
+                '
+              '''
+            }
+          }
+        }
+      }
+    }
+
+    stage('Verify Deployment') {
+      steps {
+        script {
+          withCredentials([string(credentialsId: 'GPU_SERVER_IP', variable: 'GPU_SERVER_IP')]) {
+            sshagent(credentials: [SSH_CREDENTIAL]) {
+              sh '''
+                # 원격 서버에서 컨테이너 상태 확인
+                ssh -o StrictHostKeyChecking=no ${SSH_USER}@${GPU_SERVER_IP} '
+                  echo "===== Container Status ====="
+                  docker ps | grep noti-ai
+                  
+                  echo "\\n===== noti-ai Logs (Last 10 lines) ====="
+                  docker logs noti-ai --tail 10
+                  
+                  echo "\\n===== celery-worker Logs (Last 10 lines) ====="
+                  docker logs noti-celery-worker --tail 10
+                  
+                  echo "\\n===== GPU Status ====="
+                  nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total --format=csv,noheader
+                '
+              '''
+            }
+          }
+        }
+      }
+    }
+
+    stage('Notify Success') {
+      steps {
+        script {
+          def commitMessage = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
+          def commitAuthor = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
+          def commitHash = sh(script: "git log -1 --pretty=format:%h", returnStdout: true).trim()
+          def buildTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone("Asia/Seoul"))
+
+          // 디버깅용 출력
+          echo "Commit message: ${commitMessage}"
+          echo "Commit author: ${commitAuthor}"
+          echo "Commit hash: ${commitHash}"
+          echo "Build time: ${buildTime}"
+
+          withCredentials([string(credentialsId: 'MATTERMOST_URL', variable: 'MATTERMOST_WEBHOOK')]) {
+
+            def jsonContent = """
+            {
+            "text": ":rocket: **AI 서버 배포 완료!**\\n\\n:label: 브랜치: main\\n:package: 도커 이미지: ${DOCKER_IMAGE}:${DOCKER_TAG}\\n:bust_in_silhouette: 작성자: ${commitAuthor}\\n:page_facing_up: 커밋 메시지: ${commitMessage}"
+            }
+            """
+
+            // 파일에 JSON 저장
+            writeFile file: 'notify-ai-success.json', text: jsonContent
+
+            // 파일 내용 확인
+            sh 'cat notify-ai-success.json'
+
+            // curl 명령으로 Mattermost에 전송
+            sh '''
+              # curl 명령 실행 및 응답 저장
+              curl_response=$(curl -s -w "\\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-success.json $MATTERMOST_WEBHOOK)
+
+              # 응답 상태 코드 추출
+              status_code=$(echo "$curl_response" | tail -n1)
+              response_body=$(echo "$curl_response" | sed '\$d')
+
+              echo "Mattermost response status code: $status_code"
+              echo "Mattermost response body: $response_body"
+
+              # 상태 코드 검사
+              if [ "$status_code" -ne 200 ]; then
+                echo "Error sending notification to Mattermost: $response_body"
+                exit 1
+              else
+                echo "Successfully sent notification to Mattermost"
+              fi
+            '''
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    failure {
+      script {
+        def commitMessage = sh(script: "git log -1 --pretty=format:%s", returnStdout: true).trim()
+        def commitAuthor = sh(script: "git log -1 --pretty=format:%an", returnStdout: true).trim()
+        def commitHash = sh(script: "git log -1 --pretty=format:%h", returnStdout: true).trim()
+        def buildTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone("Asia/Seoul"))
+
+        echo "Sending failure notification..."
+        echo "Commit message: ${commitMessage}"
+        echo "Commit author: ${commitAuthor}"
+
+        withCredentials([string(credentialsId: 'MATTERMOST_URL', variable: 'MATTERMOST_WEBHOOK')]) {
+          def jsonContent = """
+          {
+          "text": ":x: **AI 서버 배포 실패!**\\n\\n:bust_in_silhouette: 작성자: ${commitAuthor}\\n:page_facing_up: 커밋 메시지: ${commitMessage}\\n:link: <${BUILD_URL}|빌드 상세 보기>\\n@sseon701"
+          }
+          """
+
+          // 파일에 JSON 저장
+          writeFile file: 'notify-ai-failure.json', text: jsonContent
+
+          // 파일 내용 확인
+          sh 'cat notify-ai-failure.json'
+
+          // curl 명령으로 Mattermost에 전송
+          sh '''
+            # curl 명령 실행 및 응답 저장
+            curl_response=$(curl -s -w "\\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-failure.json $MATTERMOST_WEBHOOK)
+
+            # 응답 상태 코드 추출
+            status_code=$(echo "$curl_response" | tail -n1)
+            response_body=$(echo "$curl_response" | sed '\$d')
+
+            echo "Mattermost response status code: $status_code"
+            echo "Mattermost response body: $response_body"
+
+            # 상태 코드 검사 (여기서는 실패해도 빌드를 중단하지 않음)
+            if [ "$status_code" -ne 200 ]; then
+              echo "Error sending failure notification to Mattermost: $response_body"
+            else
+              echo "Successfully sent failure notification to Mattermost"
+            fi
+          '''
+        }
+      }
+    }
+    
+    always {
+      // 미사용 Docker 이미지 정리
+      sh 'docker system prune -f'
+      
+      // Docker Hub 로그아웃
+      sh 'docker logout || true'
+    }
+  }
+}

@@ -1,10 +1,11 @@
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from models import transcript_collection
-from services.youtube_service import extract_video_id
+from models import transcript_collection,async_transcript_collection
+from services.youtube_service import YouTubeProcessor
 
 logger = logging.getLogger(__name__)
+youtube_processor=YouTubeProcessor()
 
 async def find_transcript_by_video_id(video_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -21,7 +22,7 @@ async def find_transcript_by_url(url: str) -> Optional[Dict[str, Any]]:
     """
     URL로 트랜스크립트를 찾습니다.
     """
-    video_id = extract_video_id(url)
+    video_id = youtube_processor.extract_video_id(url)
     if not video_id:
         logger.error(f"유효하지 않은 YouTube URL: {url}")
         return None
@@ -53,7 +54,7 @@ async def save_transcript(
         }
         
         # 이미 존재하는 경우 업데이트, 없으면 새로 생성
-        result = await transcript_collection.update_one(
+        result = await async_transcript_collection.update_one(
             {"video_id": video_id},
             {"$set": document, "$setOnInsert": {"created_at": now}},
             upsert=True

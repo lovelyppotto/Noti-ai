@@ -3,32 +3,14 @@ import numpy as np
 from collections import deque
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, WebSocketException, status
 
-from services.vad_service import decode_audio_from_bytes # 이름 변경 및 기능 개선된 함수
+from services.vad_service import decode_audio_from_bytes 
 from services.whisper_service import TranscriptionService
-from services.summary_service import summarize_text # 이름 변경 (summarize -> summarize_text)
+from services.summary_service import summarize_text 
 from config import settings
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# 각 WebSocket 연결을 관리하는 클래스 (선택적 리팩토링)
-# class ConnectionManager:
-#     def __init__(self):
-#         self.active_connections: list[WebSocket] = []
-#         # 여기에 각 연결별 상태 저장 가능 (예: dict[WebSocket, ConnectionState])
-
-#     async def connect(self, websocket: WebSocket):
-#         await websocket.accept()
-#         self.active_connections.append(websocket)
-#         logger.info(f"클라이언트 연결됨: {websocket.client}")
-
-#     def disconnect(self, websocket: WebSocket):
-#         self.active_connections.remove(websocket)
-#         logger.info(f"클라이언트 연결 끊김: {websocket.client}")
-
-# manager = ConnectionManager()
-
 
 @router.websocket("/realtime-stt") # 경로 명확히 변경
 async def websocket_stt_endpoint(ws: WebSocket):
@@ -54,20 +36,11 @@ async def websocket_stt_endpoint(ws: WebSocket):
     # 요약 및 컨텍스트용 전체 텍스트 히스토리
     current_full_history_txt = ""
     
-    # 오디오 청크 결합을 위한 최소 샘플 수 (예: 0.5초 분량)
-    # VAD가 음성이라고 판단한 오디오를 모아서 STT 모델에 전달하는 것이 좋음
-    # 여기서는 간단히 시간 기반으로 처리 (예: 1초마다 또는 특정 바이트 크기마다)
-    # settings.WHISPER_SAMPLING_RATE는 1초당 샘플 수
     MIN_SAMPLES_FOR_STT = int(settings.WHISPER_SAMPLING_RATE * 1.0) # 1초 분량의 오디오를 모아서 처리
 
     try:
         while True:
-            # 클라이언트로부터 데이터 수신 (바이트 또는 텍스트)
-            # 클라이언트가 보내는 데이터 형식에 따라 receive_bytes 또는 receive_json 사용
-            # 여기서는 클라이언트가 {'type': 'audio', 'data': <bytes>} 또는 {'type': 'command', 'command': 'summarize'}
-            # 와 같은 JSON 메시지를 보낸다고 가정합니다.
-            # 혹은, 단순 바이트 스트림과 특정 텍스트 명령어를 구분할 수 있는 프로토콜 정의 필요.
-            # 현재 코드는 data가 dict 형태이고 'bytes' 또는 'text' 키를 갖는다고 가정.
+            #
             
             received_data = await ws.receive() # receive_json(), receive_bytes(), receive_text()
 
@@ -77,9 +50,6 @@ async def websocket_stt_endpoint(ws: WebSocket):
                     logger.warning(f"잘못된 오디오 데이터 타입 수신: {type(audio_bytes)}. 무시합니다.")
                     continue
 
-                # 바이너리 오디오를 NumPy 배열로 디코딩
-                # 클라이언트에서 전송하는 오디오 포맷(sample_width, channels)을 알아야 함
-                # 예시: 16-bit PCM, mono 가정
                 audio_np_segment = decode_audio_from_bytes(audio_bytes, sample_width=2, channels=1)
 
                 if audio_np_segment.size > 0:

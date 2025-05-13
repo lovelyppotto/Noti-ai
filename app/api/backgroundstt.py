@@ -2,6 +2,10 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 import datetime
 from pydantic import BaseModel, HttpUrl # 요청 본문 유효성 검사용
+from models import transcript_collection, async_transcript_collection
+from services.transcript_service import YouTubeTranscriptService
+from services.youtube_service import YouTubeProcessor
+from services.db_service import save_transcript
 
 # Celery 작업 가져오기
 # from app.services.celery_tasks import process_youtube_video_to_transcript # 직접 작업 함수 임포트
@@ -9,11 +13,14 @@ from services import celery_tasks # celery_tasks 모듈을 가져와서 사용
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
+youtube_processor = YouTubeProcessor()
 
 class VideoProcessingRequest(BaseModel):
     url: HttpUrl # HttpUrl 타입으로 URL 유효성 검사
     summarize: bool = False # 요약 여부 (기본값 False)
+
+class YouTubeTranscriptCheckRequest(BaseModel):
+    url: HttpUrl
 
 @router.post("/stt/youtube-video", status_code=status.HTTP_202_ACCEPTED)
 async def schedule_youtube_stt_task(
@@ -56,7 +63,6 @@ async def get_youtube_transcript(video_id: str):
     
     try:
         # MongoDB에서 트랜스크립트 조회
-        from models import transcript_collection
         transcript_doc = transcript_collection.find_one({"video_id": video_id})
         
         if not transcript_doc:
@@ -117,3 +123,168 @@ async def get_task_status(task_id: str):
             detail="작업 상태를 확인하는 동안 서버 내부 오류가 발생했습니다."
         )
     
+@router.get("/youtube/script/check", status_code=status.HTTP_200_OK)
+async def check_youtube_transcript(url: str):
+    """
+    YouTube 영상에 한국어 자막이 존재하는지 확인합니다.
+    """
+    logger.info(f"YouTube 한국어 자막 확인 요청: URL='{url}'")
+    
+    try:
+        # URL에서 비디오 ID 추출
+        video_id = youtube_processor.extract_video_id(str(url))
+        if not video_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 YouTube URL입니다."
+            )
+        
+        
+        # 한국어 자막 존재 여부 확인
+        transcript_service = YouTubeTranscriptService()
+        has_korean = transcript_service.check_korean_transcript(video_id)
+        
+        return {
+            "video_id": video_id,
+            "has_transcript": has_korean,
+            "in_database": False,
+            "message": "한국어 자막이 있습니다." if has_korean else "한국어 자막이 없습니다."
+        }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"YouTube 자막 확인 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="YouTube 자막 확인 중 서버 내부 오류가 발생했습니다."
+        )
+    
+@router.post("/youtube/script/save", status_code=status.HTTP_201_CREATED)
+async def save_youtube_transcript(req: YouTubeTranscriptCheckRequest):
+    """
+    YouTube 영상의 한국어 자막을 가져와 데이터베이스에 저장합니다.
+    """
+    logger.info(f"YouTube 한국어 자막 저장 요청: URL='{req.url}'")
+    
+    try:
+        # URL에서 비디오 ID 추출
+        video_id = youtube_processor.extract_video_id(str(req.url))
+        if not video_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="유효하지 않은 YouTube URL입니다."
+            )
+        
+        # 이미 존재하는지 확인
+        existing_doc = await async_transcript_collection.find_one({"video_id": video_id})
+        if existing_doc:
+            return {
+                "success": True,
+                "video_id": video_id,
+                "message": "해당 비디오의 자막이 이미 저장되어 있습니다.",
+                "in_database": True
+            }
+        
+        # YouTube 비디오 정보 가져오기
+        video_info = youtube_processor.get_video_info(str(req.url))
+        
+        if not video_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="YouTube 비디오 정보를 찾을 수 없습니다."
+            )
+        
+        # 한국어 자막 존재 여부 확인
+        transcript_service = YouTubeTranscriptService()
+        has_korean = transcript_service.check_korean_transcript(video_id)
+        
+        if not has_korean:
+            return {
+                "success": False,
+                "video_id": video_id,
+                "message": "한국어 자막이 없습니다.",
+                "in_database": False
+            }
+        
+        # 한국어 자막 가져오기
+        transcript_data = transcript_service.get_korean_transcript(video_id)
+        
+        if not transcript_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="한국어 자막을 찾을 수 없습니다."
+            )
+        
+        # 자막 데이터를 기존 형식에 맞게 변환
+        transcript_segments = []
+        full_text = ""
+        transcript_snippets = transcript_data.snippets
+        for snippet in transcript_snippets:
+            # 속성으로 직접 접근 (snippet.start, snippet.duration, snippet.text)
+            if hasattr(snippet, 'start') and hasattr(snippet, 'duration') and hasattr(snippet, 'text'):
+                # FetchedTranscriptSnippet 객체인 경우
+                start = snippet.start
+                duration = snippet.duration
+                text = snippet.text
+            elif isinstance(snippet, dict):
+                # 딕셔너리인 경우 (이전 버전 호환성)
+                start = snippet.get('start', 0.0)
+                duration = snippet.get('duration', 0.0)
+                text = snippet.get('text', '')
+            else:
+                # 알 수 없는 형식은 스킵
+                logger.warning(f"알 수 없는 스니펫 형식: {type(snippet)}")
+                continue
+            
+            end = start + duration
+            
+            # 세그먼트 추가
+            transcript_segments.append({
+                "start": start,
+                "end": end,
+                "text": text
+            })
+            
+            # 전체 텍스트 구성
+            full_text += text + " "
+        
+        if not transcript_segments:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="유효한 자막 세그먼트를 추출할 수 없습니다."
+            )
+        
+        # 트랜스크립트 저장
+        document_id = await save_transcript(
+            video_id=video_id,
+            url=str(req.url),
+            title=video_info.get("title", ""),
+            transcript_segments=transcript_segments,
+            full_text=full_text.strip(),
+            summary=None
+        )
+        
+        if document_id:
+            return {
+                "success": True,
+                "video_id": video_id,
+                "document_id": document_id,
+                "title": video_info.get("title", ""),
+                "segments_count": len(transcript_segments),
+                "message": "YouTube 자막이 성공적으로 저장되었습니다."
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="문서 삽입에 실패했습니다."
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"YouTube 자막 저장 중 오류 발생: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="YouTube 자막 저장 중 서버 내부 오류가 발생했습니다."
+        )

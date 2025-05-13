@@ -2,19 +2,44 @@ import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
 from typing import List
+from urllib import parse
 
+# .env 파일 로드
 load_dotenv()
 
 class Settings(BaseSettings):
-    # Celery 설정
-    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/1"
+    # Redis 기본 설정
+    REDIS_HOST: str = os.environ.get("REDIS_HOST", "localhost")
+    REDIS_PORT: str = os.environ.get("REDIS_PORT", "6379")
+    REDIS_USERNAME: str = os.environ.get("REDIS_USERNAME", "default")
+    REDIS_PASSWORD: str = os.environ.get("REDIS_PASSWORD", "")  # Redis 비밀번호
+    REDIS_DB_BROKER: str = os.environ.get("REDIS_DB_BROKER", "0")
+    REDIS_DB_BACKEND: str = os.environ.get("REDIS_DB_BACKEND", "1")
+    
+    # Redis URL 생성 (비밀번호가 있는 경우)
+    @property
+    def CELERY_BROKER_URL(self) -> str:
+        if self.REDIS_PASSWORD:
+            # 비밀번호에 특수 문자가 있을 수 있으므로 URL 인코딩
+            encoded_password = parse.quote_plus(self.REDIS_PASSWORD)
+            return f"redis://{self.REDIS_USERNAME}:{encoded_password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_BROKER}"
+        else:
+            return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_BROKER}"
+    
+    @property
+    def CELERY_RESULT_BACKEND(self) -> str:
+        if self.REDIS_PASSWORD:
+            encoded_password = parse.quote_plus(self.REDIS_PASSWORD)
+            return f"redis://{self.REDIS_USERNAME}:{encoded_password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_BACKEND}"
+        else:
+            return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB_BACKEND}"
+    
     CELERY_TASK_TIME_LIMIT: int = 3600  # 작업 시간 제한 (초)
     CELERY_WORKER_CONCURRENCY: int = 2   # 워커 동시성
 
     # OpenAI API 설정
-    OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
-    OPENAI_SUMMARY_MODEL: str = "gpt-4.1-mini" 
+    OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+    OPENAI_SUMMARY_MODEL: str = "gpt-4.1" 
     OPENAI_SUMMARY_MAX_TOKENS: int = 1024
     OPENAI_SUMMARY_TEMPERATURE: float = 0.2
 
@@ -49,11 +74,10 @@ class Settings(BaseSettings):
     FILTER_IGNORE_WORDS: List[str] = ["음", "어", "음...", "어...", "그...", "저...", "아..."]
     FILTER_ALLOWED_SHORT_ENGLISH_WORDS: List[str] = ["AI", "IT", "ML", "DL", "UI", "UX", "API", "OK"]
 
-
-    # 환경 변수 파일 경로 (선택 사항)
-    # class Config:
-    #     env_file = ".env"
-    #     env_file_encoding = 'utf-8'
+    # pydantic에서 자동으로 .env 파일을 로드하도록 설정
+    class Config:
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
 
 # 설정 객체 인스턴스화
 settings = Settings()

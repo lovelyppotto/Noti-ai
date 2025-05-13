@@ -15,7 +15,7 @@ document.getElementById('start').addEventListener('click', async () => {
 
     capturedStream = stream;
 
-    ws = new WebSocket('ws://localhost:8000/ws/realtime');
+    ws = new WebSocket('ws://localhost:8000/ws/realtime-stt');
     ws.binaryType = 'arraybuffer';
 
     ws.onopen = () => {
@@ -29,26 +29,42 @@ document.getElementById('start').addEventListener('click', async () => {
       mediaStreamSource.connect(processor);
       processor.connect(audioContext.destination);
 
-      processor.onaudioprocess = (event) => {
-        const inputBuffer = event.inputBuffer.getChannelData(0);
-        audioBufferQueue.push(new Float32Array(inputBuffer));
+      function float32ToInt16(buffer) {
+  const l = buffer.length;
+  const buf = new Int16Array(l);
+  
+  for (let i = 0; i < l; i++) {
+    // 값의 범위를 제한하고 스케일링
+    const s = Math.max(-1, Math.min(1, buffer[i]));
+    buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  
+  return buf;
+}
 
-        const totalSamples = audioBufferQueue.reduce((sum, buf) => sum + buf.length, 0);
-        
-        if (totalSamples >= 32000) { // 2초 분량 (16000Hz × 2초)
-          const mergedBuffer = new Float32Array(totalSamples);
-          let offset = 0;
-          for (const buf of audioBufferQueue) {
-            mergedBuffer.set(buf, offset);
-            offset += buf.length;
-          }
-          audioBufferQueue = []; // 큐 비우기
+      // 오디오 처리 함수 수정
+processor.onaudioprocess = (event) => {
+  const inputBuffer = event.inputBuffer.getChannelData(0);
+  audioBufferQueue.push(new Float32Array(inputBuffer));
 
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(mergedBuffer.buffer);
-          }
-        }
-      };
+  const totalSamples = audioBufferQueue.reduce((sum, buf) => sum + buf.length, 0);
+  
+  if (totalSamples >= 32000) { // 2초 분량
+    const mergedBuffer = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const buf of audioBufferQueue) {
+      mergedBuffer.set(buf, offset);
+      offset += buf.length;
+    }
+    audioBufferQueue = []; // 큐 비우기
+
+    if (ws.readyState === WebSocket.OPEN) {
+      // Float32Array를 Int16Array로 변환 후 전송
+      const int16Data = float32ToInt16(mergedBuffer);
+      ws.send(int16Data.buffer);
+    }
+  }
+};
 
       console.log("[녹음 시작]");
     };
@@ -82,16 +98,16 @@ document.getElementById('stop').addEventListener('click', () => {
   }
 
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.close();
+    ws.send("__SUMMARY__");
   }
 
   audioBufferQueue = []; // 큐도 비우기
   console.log("[녹음 중지]");
 });
 
-// 요약 버튼
-document.getElementById("summaryBtn").addEventListener("click", () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send("__SUMMARY__");
-  }
-});
+// // 요약 버튼
+// document.getElementById("summaryBtn").addEventListener("click", () => {
+//   if (ws && ws.readyState === WebSocket.OPEN) {
+//     ws.send("__SUMMARY__");
+//   }
+// });

@@ -97,19 +97,20 @@ pipeline {
           withCredentials([string(credentialsId: 'EC2_IP', variable: 'EC2_IP')]) {
             // docker-compose.yml 파일 생성
             def dockerComposeContent = '''
-version: '3'
+version: '3.8'
 
 services:
   noti-ai:
+    build: .
     image: sseon701/noti-ai:latest
     container_name: noti-ai
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     ports:
-      - "8000:8000"  # 필요한 포트 매핑을 애플리케이션에 맞게 조정하세요
+      - "8000:8000"
     volumes:
-      - ./data:/app/data  # 필요한 볼륨 매핑을 애플리케이션에 맞게 조정하세요
+      - ./:/app
+      - model-cache:/root/.cache/huggingface
     deploy:
       resources:
         reservations:
@@ -117,16 +118,19 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-  
+    networks:
+      - noti-network
+
   celery-worker:
+    build: .
     image: sseon701/noti-ai:latest
     container_name: noti-celery-worker
     restart: unless-stopped
-    command: celery -A app.celery worker --loglevel=info
-    env_file:
-      - .env
+    env_file: .env
+    command: celery -A celery_config.celery_app worker -l info
     volumes:
-      - ./data:/app/data
+      - ./:/app
+      - model-cache:/root/.cache/huggingface
     deploy:
       resources:
         reservations:
@@ -134,6 +138,17 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    depends_on:
+      - noti-ai
+    networks:
+      - noti-network
+
+networks:
+  noti-network:
+    driver: bridge
+
+volumes:
+  model-cache: 
 '''
             writeFile file: 'docker-compose.yml', text: dockerComposeContent
 

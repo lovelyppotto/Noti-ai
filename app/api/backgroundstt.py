@@ -7,6 +7,9 @@ from services.transcript_service import YouTubeTranscriptService
 from services.youtube_service import YouTubeProcessor
 from services.db_service import save_transcript
 
+from pydantic import BaseModel, HttpUrl
+from services.ocr_service import ocr_service
+
 # Celery 작업 가져오기
 # from app.services.celery_tasks import process_youtube_video_to_transcript # 직접 작업 함수 임포트
 from services import celery_tasks # celery_tasks 모듈을 가져와서 사용
@@ -15,6 +18,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 youtube_processor = YouTubeProcessor()
 
+class OCRRequest(BaseModel):
+    s3_url: str  # S3 이미지 URL
+ 
+ 
 class VideoProcessingRequest(BaseModel):
     url: HttpUrl # HttpUrl 타입으로 URL 유효성 검사
     summarize: bool = False # 요약 여부 (기본값 False)
@@ -288,3 +295,71 @@ async def save_youtube_transcript(req: YouTubeTranscriptCheckRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="YouTube 자막 저장 중 서버 내부 오류가 발생했습니다."
         )
+        
+@router.post("/ocr", status_code=status.HTTP_200_OK)
+async def process_ocr_request(req: OCRRequest):
+    """
+    이미지에서 텍스트를 추출하는 동기식 OCR 엔드포인트
+    
+    Args:
+        req: S3 URL이 포함된 요청
+        
+    Returns:
+        Dict: OCR 처리 결과
+    """
+    logger.info(f"OCR 처리 요청 수신: S3 URL='{req.s3_url}'")
+    
+    try:
+        result = ocr_service.process_image(s3_url=req.s3_url)
+        
+        # 처리 실패 시 예외 발생
+        if not result.get("success"):
+            logger.warning(f"OCR 처리 실패: {result.get('message')}")
+            return {
+                "code": 200,
+                "message": "OCR 처리 중 오류가 발생했으나, 빈 텍스트를 반환합니다.",
+                "text": "텍스트를 추출할 수 없습니다.",
+                "text_items": []
+            }
+        
+        # None 값을 확인하고 빈 리스트로 대체
+        text_items = result.get("text_items", [])
+        if text_items is None:
+            text_items = []
+        
+        # None 값이나 빈 문자열 항목 필터링
+        safe_text_items = []
+        for item in text_items:
+            if item is not None and item.strip():
+                safe_text_items.append(item)
+        
+        # 안전한 로깅
+        item_count = len(safe_text_items) if safe_text_items is not None else 0
+        logger.info(f"OCR 처리 완료: URL='{req.s3_url}', 텍스트 항목 수={item_count}")
+        
+        # 빈 텍스트인 경우 기본값 제공
+        full_text = result.get("full_text", "").strip()
+        if not full_text:
+            # 텍스트 항목이 있으면 합쳐서 사용
+            if safe_text_items:
+                full_text = " ".join(safe_text_items)
+            else:
+                full_text = "텍스트를 추출할 수 없습니다."
+        
+        return {
+            "code": 200,
+            "message": "OCR 작업이 성공적으로 완료되었습니다.",
+            "text": full_text,
+            "text_items": safe_text_items
+        }
+
+    except Exception as e:
+        logger.error(f"OCR 처리 중 예외 발생: {e}", exc_info=True)
+        
+        # 오류 발생 시 빈 텍스트 반환
+        return {
+            "code": 200,
+            "message": "OCR 처리 중 오류가 발생했으나, 빈 텍스트를 반환합니다.",
+            "text": "",
+            "text_items": []
+        }

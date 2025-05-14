@@ -155,7 +155,7 @@ pipeline {
         withCredentials([string(credentialsId: 'MATTERMOST_URL', variable: 'MATTERMOST_WEBHOOK')]) {
           def jsonContent = """
           {
-          "text": ":x: **AI 서버 배포 실패!**\\n\\n:bust_in_silhouette: 작성자: ${commitAuthor}\\n:page_facing_up: 커밋 메시지: ${commitMessage}\\n:link: <${BUILD_URL}|빌드 상세 보기>\\n@sseon701"
+          "text": ":x: **AI 서버 배포 실패!**\\n\\n:bust_in_silhouette: 작성자: ${commitAuthor}\\n:page_facing_up: 커밋 메시지: ${commitMessage}\\n:link: <${BUILD_URL}|빌드 상세 보기>\\n@sunju701"
           }
           """
 
@@ -186,14 +186,6 @@ pipeline {
           '''
         }
       }
-    }
-    
-    always {
-      // 미사용 Docker 이미지 정리
-      sh 'docker system prune -f'
-      
-      // Docker Hub 로그아웃
-      sh 'docker logout || true'
     }
   }
 }

@@ -91,6 +91,62 @@ pipeline {
       }
     }
 
+    stage('Upload Docker Compose Config') {
+      steps {
+        script {
+          withCredentials([string(credentialsId: 'EC2_IP', variable: 'EC2_IP')]) {
+            // docker-compose.yml 파일 생성
+            def dockerComposeContent = '''
+version: '3'
+
+services:
+  noti-ai:
+    image: sseon701/noti-ai:latest
+    container_name: noti-ai
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"  # 필요한 포트 매핑을 애플리케이션에 맞게 조정하세요
+    volumes:
+      - ./data:/app/data  # 필요한 볼륨 매핑을 애플리케이션에 맞게 조정하세요
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  
+  celery-worker:
+    image: sseon701/noti-ai:latest
+    container_name: noti-celery-worker
+    restart: unless-stopped
+    command: celery -A app.celery worker --loglevel=info
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+'''
+            writeFile file: 'docker-compose.yml', text: dockerComposeContent
+
+            sshagent(credentials: [SSH_CREDENTIAL]) {
+              sh '''
+                scp -o StrictHostKeyChecking=no docker-compose.yml ${SSH_USER}@${EC2_IP}:~/noti-ai/docker-compose.yml
+              '''
+            }
+          }
+        }
+      }
+    }
+
     stage('Deploy to GPU Server') {
       steps {
         script {
@@ -196,7 +252,6 @@ pipeline {
           """
           writeFile file: 'notify-ai-failure.json', text: jsonContent
 
-          // 실패 시 알림 전송 명령 수정 - returnStatus 추가
           sh(script: '''
             curl -s -X POST -H "Content-Type: application/json" -d @notify-ai-failure.json $MATTERMOST_WEBHOOK || echo "Failed to send failure notification"
           ''', returnStatus: true)

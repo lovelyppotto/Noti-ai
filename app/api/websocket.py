@@ -9,7 +9,6 @@ from services.summary_service import summarize_text
 from config import settings
 
 from pydantic import BaseModel, HttpUrl
-from services.ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

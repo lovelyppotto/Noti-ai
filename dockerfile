@@ -21,8 +21,9 @@ WORKDIR /app
 
 # 의존성 파일 복사 및 설치
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install -r requirements.txt
 RUN pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
+RUN pip install paddlepaddle-gpu==2.6.0.post115 -i https://pypi.org/simple
 
 # 애플리케이션 코드 복사
 COPY . .
@@ -31,4 +32,4 @@ COPY . .
 EXPOSE 8000
 
 # 기본 명령 설정
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "cd app && uvicorn main:app --host 0.0.0.0 --port 8000"]

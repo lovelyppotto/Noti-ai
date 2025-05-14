@@ -6,6 +6,10 @@ from datetime import datetime
 from celery_config import celery_app
 from services.youtube_service import YouTubeProcessor
 from services.whisper_service import TranscriptionService # STT 서비스 클래스 사용
+from services.ocr_service import OCRService
+import requests
+import asyncio
+from typing import Any, List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -163,3 +167,44 @@ def process_youtube_video_to_transcript(self, url: str, summarize: bool = False)
                 except OSError as e_remove:
                     logger.error(f"[Task ID: {self.request.id}] 임시 오디오 파일 삭제 실패: {e_remove}", exc_info=True)
             logger.info(f"[Task ID: {self.request.id}] YouTube 처리 작업 리소스 정리 완료.")
+            
+# celery_tasks.py
+
+logger = logging.getLogger(__name__)
+
+def process_ocr(s3_url: str) -> Dict[str, Any]:
+    """
+    S3 이미지 URL에서 OCR을 동기적으로 수행하는 함수
+    
+    Args:
+        s3_url (str): 이미지가 저장된 S3 URL
+        
+    Returns:
+        dict: OCR 처리 결과
+    """
+    logger.info(f"OCR 처리 작업 시작: {s3_url}")
+    
+    try:
+        # OCR 서비스 초기화 확인
+        if not hasattr(OCRService, 'ocr'):
+            logger.error(f"OCR 서비스 초기화 실패. 작업 중단.")
+            raise Exception("OCR service initialization failed")
+        
+        # 동기적으로 OCR 처리 실행
+        ocr_result = OCRService.process_image(s3_url)
+            
+        if not ocr_result.get("success"):
+            logger.error(f"OCR 처리 실패: {ocr_result.get('message')}")
+            raise Exception(f"OCR 처리 실패: {ocr_result.get('message')}")
+        
+        # OCR 결과가 성공적으로 생성됨
+        logger.info(f"OCR 처리 완료: "
+                  f"{len(ocr_result.get('text_items', []))}개 텍스트 항목 감지")
+                
+        return ocr_result
+    
+    except Exception as e:
+        logger.error(f"OCR 처리 작업 중 예기치 않은 오류 발생: {e}", 
+                   exc_info=True)
+        # 예외를 상위로 전파
+        raise e

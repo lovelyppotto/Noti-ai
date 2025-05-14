@@ -94,3 +94,6 @@ websockets==15.0.1
 whisper==1.1.10
 youtube-transcript-api==1.0.3
 yt-dlp==2025.4.30
+paddleocr==2.6.0.3
+opencv-python==4.7.0.72
+matplotlib>=3.5.0

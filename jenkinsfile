@@ -35,6 +35,44 @@ pipeline {
       }
     }
 
+    stage('Upload .env to EC2') {
+      steps {
+        script {
+          withCredentials([
+            string(credentialsId: 'EC2_IP', variable: 'EC2_IP'),
+            string(credentialsId: 'MONGODB_URI', variable: 'MONGODB_URI'),
+            string(credentialsId: 'MONGODB_DB_NAME', variable: 'MONGODB_DB_NAME'),
+            string(credentialsId: 'REDIS_HOST', variable: 'REDIS_HOST'),
+            string(credentialsId: 'REDIS_PORT', variable: 'REDIS_PORT'),
+            string(credentialsId: 'REDIS_USERNAME', variable: 'REDIS_USERNAME'),
+            string(credentialsId: 'REDIS_PASSWORD', variable: 'REDIS_PASSWORD'),
+            string(credentialsId: 'REDIS_DB_BROKER', variable: 'REDIS_DB_BROKER'),
+            string(credentialsId: 'REDIS_DB_BACKEND', variable: 'REDIS_DB_BACKEND'),
+            string(credentialsId: 'OPENAI_API_KEY', variable: 'OPENAI_API_KEY')
+          ]) {
+            writeFile file: '.env', text: """
+MONGODB_URI=${MONGODB_URI}
+MONGODB_DB_NAME=${MONGODB_DB_NAME}
+
+REDIS_HOST=${REDIS_HOST}
+REDIS_PORT=${REDIS_PORT}
+REDIS_USERNAME=${REDIS_USERNAME}
+REDIS_PASSWORD=${REDIS_PASSWORD}
+REDIS_DB_BROKER=${REDIS_DB_BROKER}
+REDIS_DB_BACKEND=${REDIS_DB_BACKEND}
+
+OPENAI_API_KEY=${OPENAI_API_KEY}
+"""
+            sshagent(credentials: [SSH_CREDENTIAL]) {
+              sh '''
+                scp -o StrictHostKeyChecking=no .env ${SSH_USER}@${EC2_IP}:~/noti-ai/.env
+              '''
+            }
+          }
+        }
+      }
+    }
+
     stage('Deploy to GPU Server') {
       steps {
         script {
@@ -43,11 +81,9 @@ pipeline {
           ]) {
             sshagent(credentials: [SSH_CREDENTIAL]) {
               sh '''
-                # 원격 서버에 디렉토리 생성 및 docker-compose.yml 파일 생성
                 ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
                   mkdir -p ~/noti-ai && cd ~/noti-ai
 
-                  # 배포 실행
                   docker compose down || true
                   docker compose pull
                   docker compose up -d
@@ -65,18 +101,17 @@ pipeline {
           withCredentials([string(credentialsId: 'EC2_IP', variable: 'EC2_IP')]) {
             sshagent(credentials: [SSH_CREDENTIAL]) {
               sh '''
-                # 원격 서버에서 컨테이너 상태 확인
                 ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
                   echo "===== Container Status ====="
                   docker ps | grep noti-ai
-                  
-                  echo "\\n===== noti-ai Logs (Last 10 lines) ====="
+
+                  echo "\n===== noti-ai Logs (Last 10 lines) ====="
                   docker logs noti-ai --tail 10
-                  
-                  echo "\\n===== celery-worker Logs (Last 10 lines) ====="
+
+                  echo "\n===== celery-worker Logs (Last 10 lines) ====="
                   docker logs noti-celery-worker --tail 10
-                  
-                  echo "\\n===== GPU Status ====="
+
+                  echo "\n===== GPU Status ====="
                   nvidia-smi --query-gpu=index,name,utilization.gpu,memory.used,memory.total --format=csv,noheader
                 '
               '''
@@ -94,39 +129,29 @@ pipeline {
           def commitHash = sh(script: "git log -1 --pretty=format:%h", returnStdout: true).trim()
           def buildTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone("Asia/Seoul"))
 
-          // 디버깅용 출력
           echo "Commit message: ${commitMessage}"
           echo "Commit author: ${commitAuthor}"
           echo "Commit hash: ${commitHash}"
           echo "Build time: ${buildTime}"
 
           withCredentials([string(credentialsId: 'MATTERMOST_URL', variable: 'MATTERMOST_WEBHOOK')]) {
-
             def jsonContent = """
             {
             "text": ":rocket: **AI 서버 배포 완료!**\\n\\n:label: 브랜치: main\\n:package: 도커 이미지: ${DOCKER_IMAGE}:${DOCKER_TAG}\\n:bust_in_silhouette: 작성자: ${commitAuthor}\\n:page_facing_up: 커밋 메시지: ${commitMessage}"
             }
             """
 
-            // 파일에 JSON 저장
             writeFile file: 'notify-ai-success.json', text: jsonContent
 
-            // 파일 내용 확인
-            sh 'cat notify-ai-success.json'
-
-            // curl 명령으로 Mattermost에 전송
             sh '''
-              # curl 명령 실행 및 응답 저장
-              curl_response=$(curl -s -w "\\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-success.json $MATTERMOST_WEBHOOK)
+              curl_response=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-success.json $MATTERMOST_WEBHOOK)
 
-              # 응답 상태 코드 추출
               status_code=$(echo "$curl_response" | tail -n1)
-              response_body=$(echo "$curl_response" | sed '\$d')
+              response_body=$(echo "$curl_response" | sed '$d')
 
               echo "Mattermost response status code: $status_code"
               echo "Mattermost response body: $response_body"
 
-              # 상태 코드 검사
               if [ "$status_code" -ne 200 ]; then
                 echo "Error sending notification to Mattermost: $response_body"
                 exit 1
@@ -159,25 +184,17 @@ pipeline {
           }
           """
 
-          // 파일에 JSON 저장
           writeFile file: 'notify-ai-failure.json', text: jsonContent
 
-          // 파일 내용 확인
-          sh 'cat notify-ai-failure.json'
-
-          // curl 명령으로 Mattermost에 전송
           sh '''
-            # curl 명령 실행 및 응답 저장
-            curl_response=$(curl -s -w "\\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-failure.json $MATTERMOST_WEBHOOK)
+            curl_response=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" -d @notify-ai-failure.json $MATTERMOST_WEBHOOK)
 
-            # 응답 상태 코드 추출
             status_code=$(echo "$curl_response" | tail -n1)
-            response_body=$(echo "$curl_response" | sed '\$d')
+            response_body=$(echo "$curl_response" | sed '$d')
 
             echo "Mattermost response status code: $status_code"
             echo "Mattermost response body: $response_body"
 
-            # 상태 코드 검사 (여기서는 실패해도 빌드를 중단하지 않음)
             if [ "$status_code" -ne 200 ]; then
               echo "Error sending failure notification to Mattermost: $response_body"
             else

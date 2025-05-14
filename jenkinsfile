@@ -50,21 +50,23 @@ pipeline {
             string(credentialsId: 'REDIS_DB_BACKEND', variable: 'REDIS_DB_BACKEND'),
             string(credentialsId: 'OPENAI_API_KEY', variable: 'OPENAI_API_KEY')
           ]) {
-            def envText = """
-MONGODB_URI=${MONGODB_URI}
-MONGODB_DB_NAME=${MONGODB_DB_NAME}
-REDIS_HOST=${REDIS_HOST}
-REDIS_PORT=${REDIS_PORT}
-REDIS_USERNAME=${REDIS_USERNAME}
-REDIS_PASSWORD=${REDIS_PASSWORD}
-REDIS_DB_BROKER=${REDIS_DB_BROKER}
-REDIS_DB_BACKEND=${REDIS_DB_BACKEND}
-OPENAI_API_KEY=${OPENAI_API_KEY}
-"""
-            writeFile file: '.env', text: envText
+            // 보안 경고를 해결하기 위한 환경 변수 생성 방식 변경
+            def envVars = [
+              "MONGODB_URI=${MONGODB_URI}",
+              "MONGODB_DB_NAME=${MONGODB_DB_NAME}",
+              "REDIS_HOST=${REDIS_HOST}",
+              "REDIS_PORT=${REDIS_PORT}",
+              "REDIS_USERNAME=${REDIS_USERNAME}",
+              "REDIS_PASSWORD=${REDIS_PASSWORD}",
+              "REDIS_DB_BROKER=${REDIS_DB_BROKER}",
+              "REDIS_DB_BACKEND=${REDIS_DB_BACKEND}",
+              "OPENAI_API_KEY=${OPENAI_API_KEY}"
+            ]
+            writeFile file: '.env', text: envVars.join('\n')
 
             sshagent(credentials: [SSH_CREDENTIAL]) {
-              sh '''
+              // 첫 번째 명령어: 환경 파일 존재 여부 확인
+              def exitCode = sh(script: '''
                 ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
                   mkdir -p ~/noti-ai
                   if [ ! -f ~/noti-ai/.env ]; then
@@ -72,11 +74,17 @@ OPENAI_API_KEY=${OPENAI_API_KEY}
                     exit 100
                   else
                     echo ".env already exists, skipping upload."
+                    exit 0
                   fi
                 '
-              ''' || sh '''
-                scp -o StrictHostKeyChecking=no .env ${SSH_USER}@${EC2_IP}:~/noti-ai/.env
-              '''
+              ''', returnStatus: true)
+              
+              // exitCode가 100이면 .env 파일이 없으므로 업로드
+              if (exitCode == 100) {
+                sh '''
+                  scp -o StrictHostKeyChecking=no .env ${SSH_USER}@${EC2_IP}:~/noti-ai/.env
+                '''
+              }
             }
           }
         }
@@ -188,9 +196,10 @@ OPENAI_API_KEY=${OPENAI_API_KEY}
           """
           writeFile file: 'notify-ai-failure.json', text: jsonContent
 
-          sh '''
+          // 실패 시 알림 전송 명령 수정 - returnStatus 추가
+          sh(script: '''
             curl -s -X POST -H "Content-Type: application/json" -d @notify-ai-failure.json $MATTERMOST_WEBHOOK || echo "Failed to send failure notification"
-          '''
+          ''', returnStatus: true)
         }
       }
     }

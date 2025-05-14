@@ -8,10 +8,16 @@ from services.whisper_service import TranscriptionService
 from services.summary_service import summarize_text 
 from config import settings
 
+from pydantic import BaseModel, HttpUrl
+from services.ocr_service import OCRService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+class OCRRequest(BaseModel):
+    s3_url: str  # S3 이미지 URL
+    
 @router.websocket("/realtime-stt") # 경로 명확히 변경
 async def websocket_stt_endpoint(ws: WebSocket):
     """
@@ -123,4 +129,3 @@ async def websocket_stt_endpoint(ws: WebSocket):
         del audio_buffer_np
         del token_hist
         del current_full_history_txt
-

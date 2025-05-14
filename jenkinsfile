@@ -62,11 +62,11 @@ pipeline {
     stage('Verify Deployment') {
       steps {
         script {
-          withCredentials([string(credentialsId: 'GPU_SERVER_IP', variable: 'GPU_SERVER_IP')]) {
+          withCredentials([string(credentialsId: 'EC2_IP', variable: 'EC2_IP')]) {
             sshagent(credentials: [SSH_CREDENTIAL]) {
               sh '''
                 # 원격 서버에서 컨테이너 상태 확인
-                ssh -o StrictHostKeyChecking=no ${SSH_USER}@${GPU_SERVER_IP} '
+                ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
                   echo "===== Container Status ====="
                   docker ps | grep noti-ai
                   

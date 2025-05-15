@@ -98,7 +98,7 @@ class YouTubeProcessor:
             logger.error(f"비디오 ID 추출 중 오류 발생: {e}")
             return ""
 
-    def get_video_info(self,url: str) -> dict:
+    def get_video_info(self,url: str,cookies_file: str = None, use_browser_cookies: str = None) -> dict:
         """
         YouTube 동영상 정보
         Args:
@@ -114,16 +114,38 @@ class YouTubeProcessor:
                 'extract_flat': True,
             }
 
+            # 쿠키 설정 추가
+            if cookies_file:
+                info_opts['cookiefile'] = cookies_file
+            elif use_browser_cookies:
+                info_opts['cookies_from_browser'] = use_browser_cookies
+
+            # User-Agent 설정 추가 (선택적)
+            info_opts['http_headers'] = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+
             with yt_dlp.YoutubeDL(info_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+
+                # 비디오 정보가 없는 경우 확인
+                if not info:
+                    logger.warning(f"비디오 정보를 가져올 수 없습니다: {url}")
+                    return {}
+
                 return {
                     'id': info.get('id', ''),
                     'title': info.get('title', ''),
                     'duration': info.get('duration', 0),
                     'upload_date': info.get('upload_date', ''),
                     'channel': info.get('channel', ''),
+                    'channel_id': info.get('channel_id', ''),
+                    'view_count': info.get('view_count', 0),
                 }
         except Exception as e:
-            logger.error(f"비디오 정보 가져오기 실패: {e}")
-            return {}
-    
+            logger.error(f"비디오 정보 가져오기 실패: {e}", exc_info=True)
+            # 단순히 빈 딕셔너리 대신 오류 메시지와 함께 반환
+            return {
+                'error': str(e),
+                'id': self.extract_video_id(url) or '',
+            }

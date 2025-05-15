@@ -1,7 +1,7 @@
 import os
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
-from typing import List
+from typing import List, Optional, Dict
 from urllib import parse
 
 # .env 파일 로드
@@ -73,6 +73,21 @@ class Settings(BaseSettings):
     # 필터링 설정
     FILTER_IGNORE_WORDS: List[str] = ["음", "어", "음...", "어...", "그...", "저...", "아..."]
     FILTER_ALLOWED_SHORT_ENGLISH_WORDS: List[str] = ["AI", "IT", "ML", "DL", "UI", "UX", "API", "OK"]
+
+    # Webshare Proxy Settings
+    PROXY_URL_WEBSHARE: Optional[str] = os.environ.get("PROXY_URL_WEBSHARE")
+    HTTP_PROXY_WEBSHARE: Optional[str] = os.environ.get("HTTP_PROXY_WEBSHARE")
+    HTTPS_PROXY_WEBSHARE: Optional[str] = os.environ.get("HTTPS_PROXY_WEBSHARE")
+
+    # youtube-transcript-api에 전달할 프록시 딕셔너리 생성
+    @property
+    def TRANSCRIPT_API_PROXIES_WEBSHARE(self) -> Optional[Dict[str, str]]:
+        proxies = {}
+        if self.HTTP_PROXY_WEBSHARE:
+            proxies['http'] = self.HTTP_PROXY_WEBSHARE
+        if self.HTTPS_PROXY_WEBSHARE:
+            proxies['https'] = self.HTTPS_PROXY_WEBSHARE
+        return proxies if proxies else None
 
     # pydantic에서 자동으로 .env 파일을 로드하도록 설정
     class Config:

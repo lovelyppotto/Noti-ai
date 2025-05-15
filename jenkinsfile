@@ -106,10 +106,13 @@ services:
     container_name: noti-ai
     restart: unless-stopped
     env_file: .env
+    runtime: nvidia
+    environment: 
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app
+      - ./:/NOTI-AI
       - model-cache:/root/.cache/huggingface
     deploy:
       resources:
@@ -119,7 +122,7 @@ services:
               count: 1
               capabilities: [gpu]
     networks:
-      - noti-network
+      - noti_network
 
   celery-worker:
     build: .
@@ -129,7 +132,7 @@ services:
     env_file: .env
     command: sh -c "cd app && celery -A celery_config.celery_app worker -l info"
     volumes:
-      - ./:/app
+      - ./:/NOTI-AI
       - model-cache:/root/.cache/huggingface
     deploy:
       resources:
@@ -141,11 +144,11 @@ services:
     depends_on:
       - noti-ai
     networks:
-      - noti-network
+      - noti_network
 
 networks:
-  noti-network:
-    driver: bridge
+  noti_network:
+    external: true
 
 volumes:
   model-cache: 

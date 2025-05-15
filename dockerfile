@@ -1,5 +1,5 @@
 # Dockerfile
-FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
 # 환경 변수 설정
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -16,6 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcudnn8 \
+    libcudnn8-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # 작업 디렉토리 설정
 WORKDIR /app
 
@@ -23,7 +29,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install -r requirements.txt
 RUN pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
-RUN pip install paddlepaddle-gpu==2.6.0.post115 -i https://pypi.org/simple
+RUN pip install paddlepaddle-gpu==2.6.2 -i https://pypi.org/simple
 
 # 애플리케이션 코드 복사
 COPY . .

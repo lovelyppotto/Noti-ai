@@ -60,7 +60,10 @@ pipeline {
               "REDIS_PASSWORD=${REDIS_PASSWORD}",
               "REDIS_DB_BROKER=${REDIS_DB_BROKER}",
               "REDIS_DB_BACKEND=${REDIS_DB_BACKEND}",
-              "OPENAI_API_KEY=${OPENAI_API_KEY}"
+              "OPENAI_API_KEY=${OPENAI_API_KEY}",
+              "PROXY_URL_WEBSHARE=${PROXY_URL_WEBSHARE}",
+              "HTTP_PROXY_WEBSHARE=${HTTP_PROXY_WEBSHARE}",
+              "HTTPS_PROXY_WEBSHARE=${HTTPS_PROXY_WEBSHARE}"
             ]
             writeFile file: '.env', text: envVars.join('\n')
 

@@ -106,6 +106,8 @@ services:
     container_name: noti-ai
     restart: unless-stopped
     env_file: .env
+    environment: 
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu
     ports:
       - "8000:8000"
     volumes:
@@ -145,7 +147,7 @@ services:
 
 networks:
   noti_network:
-    driver: bridge
+    external: true
 
 volumes:
   model-cache: 

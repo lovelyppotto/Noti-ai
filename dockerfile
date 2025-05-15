@@ -1,5 +1,5 @@
 # Dockerfile
-FROM nvidia/cuda:12.2.0-cudnn8-runtime-ubuntu22.04
+FROM nvidia/cuda:12.2.0-runtime-ubuntu22.04
 
 # 환경 변수 설정
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -13,6 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     libsndfile1 ffmpeg \
     git \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcudnn8 \
+    libcudnn8-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

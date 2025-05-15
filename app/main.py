@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 import torch
 from fastapi import FastAPI
 from celery import Celery
+from fastapi.middleware.cors import CORSMiddleware
 
 # 설정 로드 (가장 먼저 실행되도록)
 from config import settings
@@ -46,7 +47,23 @@ async def lifespan(app: FastAPI):
     logger.info("애플리케이션이 성공적으로 종료되었습니다.")
 
 # FastAPI 앱 인스턴스 생성
-app = FastAPI(title="Background STT and Summary Service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Background STT and OCR service",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",    
+        "https://notii.kr",   
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],   
+)
+
 
 # API 라우터 등록
 app.include_router(websocket_router, prefix="/ws", tags=["WebSocket"])

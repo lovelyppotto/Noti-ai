@@ -48,7 +48,10 @@ pipeline {
             string(credentialsId: 'REDIS_PASSWORD', variable: 'REDIS_PASSWORD'),
             string(credentialsId: 'REDIS_DB_BROKER', variable: 'REDIS_DB_BROKER'),
             string(credentialsId: 'REDIS_DB_BACKEND', variable: 'REDIS_DB_BACKEND'),
-            string(credentialsId: 'OPENAI_API_KEY', variable: 'OPENAI_API_KEY')
+            string(credentialsId: 'OPENAI_API_KEY', variable: 'OPENAI_API_KEY'),
+            string(credentialsId: 'HTTP_PROXY_WEBSHARE', variable: 'HTTP_PROXY_WEBSHARE'),
+            string(credentialsId: 'PROXY_URL_WEBSHARE', variable: 'PROXY_URL_WEBSHARE'),
+            string(credentialsId: 'HTTPS_PROXY_WEBSHARE', variable: 'HTTPS_PROXY_WEBSHARE')
           ]) {
             // 보안 경고를 해결하기 위한 환경 변수 생성 방식 변경
             def envVars = [

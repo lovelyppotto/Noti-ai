@@ -1,6 +1,9 @@
 # Dockerfile
 FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
+# 빠른 미러 적용 (카카오)
+RUN sed -i 's|archive.ubuntu.com|mirror.kakao.com|g' /etc/apt/sources.list
+
 # 환경 변수 설정
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -13,10 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libffi-dev \
     libsndfile1 ffmpeg \
     git \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
     libcudnn8 \
     libcudnn8-dev \
     && apt-get clean \
@@ -27,9 +26,9 @@ WORKDIR /app
 
 # 의존성 파일 복사 및 설치
 COPY requirements.txt .
-RUN pip3 install -r requirements.txt
-RUN pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
-RUN pip install paddlepaddle-gpu==2.6.2 -i https://pypi.org/simple
+RUN --mount=type=cache,target=/root/.cache/pip pip3 install -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --extra-index-url https://download.pytorch.org/whl/cu121
+RUN --mount=type=cache,target=/root/.cache/pip pip install paddlepaddle-gpu==2.6.2 -i https://pypi.org/simple
 
 # 애플리케이션 코드 복사
 COPY . .

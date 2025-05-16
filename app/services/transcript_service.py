@@ -12,11 +12,14 @@ class YouTubeTranscriptService:
     @staticmethod
     def _get_proxies_for_transcript_api() -> Optional[Dict[str, str]]:
         return settings.TRANSCRIPT_API_PROXIES_WEBSHARE
-
+    
 
     @staticmethod
     def check_korean_transcript(video_id: str) -> bool:
         proxies = YouTubeTranscriptService._get_proxies_for_transcript_api()
+        print(settings.PROXY_URL_WEBSHARE)
+        print(settings.HTTP_PROXY_WEBSHARE)
+        print(settings.HTTPS_PROXY_WEBSHARE)
         log_proxy_info = f"(프록시: {proxies})" if proxies else "(프록시 사용 안함)"
 
         try:

@@ -96,7 +96,7 @@ class YouTubeProcessor:
             logger.error(f"비디오 ID 추출 중 오류 발생: {e}")
             return ""
 
-    def get_video_info(self,url: str,cookies_file: str = None, use_browser_cookies: str = None) -> dict:
+    def get_video_info(self,url: str) -> dict:
         """
         YouTube 동영상 정보
         Args:
@@ -112,11 +112,6 @@ class YouTubeProcessor:
                 'extract_flat': True,
             }
 
-            # 쿠키 설정 추가
-            if cookies_file:
-                info_opts['cookiefile'] = cookies_file
-            elif use_browser_cookies:
-                info_opts['cookies_from_browser'] = use_browser_cookies
 
             # User-Agent 설정 추가 (선택적)
             info_opts['http_headers'] = {

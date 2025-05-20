@@ -24,6 +24,9 @@ class OCRService:
                 lang = 'korean',
                 use_gpu=True,       # GPU 사용
                 enable_mkldnn=True, # Intel CPU 최적화 (GPU가 없는 경우)
+                det_db_box_thresh=0.4,
+                rec_algorithm='CRNN',
+                rec_image_shape="3,32,320",
                 )
             logger.info("OCR 서비스가 성공적으로 초기화되었습니다.")
         except Exception as e:
@@ -376,7 +379,7 @@ class OCRService:
                 # 이미지 전처리
                 preprocessed_image = self.preprocess_image(original_image)
                 
-                # 원본본 이미지로 텍스트 추출
+                # 원본 이미지로 텍스트 추출
                 ocr_results = self.extract_text(original_image)
                 
                 # 텍스트 항목 추출 및 2차원 정렬 (위쪽에서 아래로, 그리고 각 줄 내에서는 왼쪽에서 오른쪽으로)

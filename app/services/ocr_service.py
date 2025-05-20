@@ -359,140 +359,105 @@ class OCRService:
     #     return self.process_image(s3_url)
 
 
-def process_image(self, s3_url: str) -> Dict[str, Any]:
-    """
-    S3 URL 이미지 처리 파이프라인 (동기 버전)
-    
-    Args:
-        s3_url: S3 이미지 URL
-        
-    Returns:
-        Dict[str, Any]: OCR 결과
-    """
-    try:
-        # 이미지 다운로드
-        original_image = self.download_image_from_s3(s3_url)
-        
-        # 이미지 전처리
-        preprocessed_image = self.preprocess_image(original_image)
-        
-        # 원본본 이미지로 텍스트 추출
-        ocr_results = self.extract_text(original_image)
-        
-        # # 결과가 없거나 불충분하면 원본 이미지로 시도
-        # if len(ocr_results) < 2:
-        #     logger.info("전처리된 이미지에서 충분한 텍스트를 추출하지 못했습니다. 원본 이미지로 시도합니다.")
-        #     original_results = self.extract_text(original_image)
+    def process_image(self, s3_url: str) -> Dict[str, Any]:
+            """
+            S3 URL 이미지 처리 파이프라인 (동기 버전)
             
-        #     # 원본 이미지 결과가 더 많으면 사용
-        #     if len(original_results) > len(ocr_results):
-        #         ocr_results = original_results
-        
-        # 여전히 결과가 불충분하면 여러 전처리 방법 시도
-        # if len(ocr_results) < 2:
-        #     logger.info("다양한 전처리 방법을 시도합니다.")
-        #     best_results = ocr_results
-            
-        #     # 여러 전처리 이미지로 시도
-        #     # images = self.try_multiple_preprocessings(original_image)
-            
-        #     for i, img in enumerate(images):
-        #         try:
-        #             current_results = self.extract_text(img)
+            Args:
+                s3_url: S3 이미지 URL
+                
+            Returns:
+                Dict[str, Any]: OCR 결과
+            """
+            try:
+                # 이미지 다운로드
+                original_image = self.download_image_from_s3(s3_url)
+                
+                # 이미지 전처리
+                preprocessed_image = self.preprocess_image(original_image)
+                
+                # 원본본 이미지로 텍스트 추출
+                ocr_results = self.extract_text(original_image)
+                
+                # 텍스트 항목 추출 및 2차원 정렬 (위쪽에서 아래로, 그리고 각 줄 내에서는 왼쪽에서 오른쪽으로)
+                if ocr_results:
+                    # 1. 각 텍스트 항목의 중심 좌표 계산
+                    for item in ocr_results:
+                        box = item["bounding_box"]
+                        item["center_y"] = sum(coord[1] for coord in box) / len(box)
+                        item["center_x"] = sum(coord[0] for coord in box) / len(box)
                     
-        #             # 더 많은 텍스트를 추출했거나 더 높은 신뢰도를 가진 경우 업데이트
-        #             if len(current_results) > len(best_results) or (
-        #                 len(current_results) == len(best_results) and 
-        #                 sum(item["confidence"] for item in current_results) > 
-        #                 sum(item["confidence"] for item in best_results)
-        #             ):
-        #                 best_results = current_results
-        #                 logger.info(f"전처리 방법 {i}에서 더 좋은 결과 발견: {len(current_results)} 항목")
-        #         except Exception as e:
-        #             logger.warning(f"전처리 방법 {i}에서 오류 발생: {e}")
-            
-        #     ocr_results = best_results
+                    # 2. 줄 단위로 그룹화 (y 좌표가 비슷한 항목들)
+                    y_tolerance = 10  # 같은 줄로 간주할 y좌표 차이 허용 범위
+                    lines = []
+                    sorted_items = sorted(ocr_results, key=lambda x: x["center_y"])
                     
-        # 텍스트 항목 추출 및 2차원 정렬 (위쪽에서 아래로, 그리고 각 줄 내에서는 왼쪽에서 오른쪽으로)
-        if ocr_results:
-            # 1. 각 텍스트 항목의 중심 좌표 계산
-            for item in ocr_results:
-                box = item["bounding_box"]
-                item["center_y"] = sum(coord[1] for coord in box) / len(box)
-                item["center_x"] = sum(coord[0] for coord in box) / len(box)
+                    if sorted_items:
+                        current_line = [sorted_items[0]]
+                        current_y = sorted_items[0]["center_y"]
+                        
+                        for item in sorted_items[1:]:
+                            if abs(item["center_y"] - current_y) <= y_tolerance:
+                                # 같은 줄에 추가
+                                current_line.append(item)
+                            else:
+                                # 새 줄 시작
+                                lines.append(current_line)
+                                current_line = [item]
+                                current_y = item["center_y"]
+                        
+                        if current_line:
+                            lines.append(current_line)
+                        
+                        # 3. 각 줄 내에서 항목을 왼쪽에서 오른쪽으로 정렬
+                        for line in lines:
+                            line.sort(key=lambda x: x["center_x"])
+                        
+                        # 4. 정렬된 결과로 ocr_results 재구성
+                        sorted_results = []
+                        for line in lines:
+                            sorted_results.extend(line)
+                        
+                        ocr_results = sorted_results
             
-            # 2. 줄 단위로 그룹화 (y 좌표가 비슷한 항목들)
-            y_tolerance = 10  # 같은 줄로 간주할 y좌표 차이 허용 범위
-            lines = []
-            sorted_items = sorted(ocr_results, key=lambda x: x["center_y"])
-            
-            if sorted_items:
-                current_line = [sorted_items[0]]
-                current_y = sorted_items[0]["center_y"]
+                # 전체 텍스트 추출 (모든 인식된 텍스트를 공백으로 연결)
+                all_text = " ".join([item["text"] for item in ocr_results])
                 
-                for item in sorted_items[1:]:
-                    if abs(item["center_y"] - current_y) <= y_tolerance:
-                        # 같은 줄에 추가
-                        current_line.append(item)
-                    else:
-                        # 새 줄 시작
-                        lines.append(current_line)
-                        current_line = [item]
-                        current_y = item["center_y"]
+                # 텍스트 후처리
+                processed_text = self.post_process_text(all_text)
                 
-                if current_line:
-                    lines.append(current_line)
+                # 개별 텍스트 항목 추출
+                text_items = [item["text"] for item in ocr_results]
                 
-                # 3. 각 줄 내에서 항목을 왼쪽에서 오른쪽으로 정렬
-                for line in lines:
-                    line.sort(key=lambda x: x["center_x"])
+                # 결과 반환
+                return {
+                    "success": True,
+                    "message": "OCR 처리 완료",
+                    "full_text": processed_text,
+                    "original_text": all_text,
+                    "text_items": text_items,
+                    "detailed_items": ocr_results,
+                    "s3_url": s3_url
+                }
                 
-                # 4. 정렬된 결과로 ocr_results 재구성
-                sorted_results = []
-                for line in lines:
-                    sorted_results.extend(line)
-                
-                ocr_results = sorted_results
-        
-        # 전체 텍스트 추출 (모든 인식된 텍스트를 공백으로 연결)
-        all_text = " ".join([item["text"] for item in ocr_results])
-        
-        # 텍스트 후처리
-        processed_text = self.post_process_text(all_text)
-        
-        # 개별 텍스트 항목 추출
-        text_items = [item["text"] for item in ocr_results]
-        
-        # 결과 반환
-        return {
-            "success": True,
-            "message": "OCR 처리 완료",
-            "full_text": processed_text,
-            "original_text": all_text,
-            "text_items": text_items,
-            "detailed_items": ocr_results,
-            "s3_url": s3_url
-        }
-        
-    except Exception as e:
-        logger.error(f"이미지 처리 중 오류 발생: {str(e)}")
-        return {
-            "success": False,
-            "message": f"OCR 처리 실패: {str(e)}",
-            "full_text": "",
-            "original_text": "",
-            "text_items": [],
-            "detailed_items": [],
-            "s3_url": s3_url
-        }
+            except Exception as e:
+                logger.error(f"이미지 처리 중 오류 발생: {str(e)}")
+                return {
+                    "success": False,
+                    "message": f"OCR 처리 실패: {str(e)}",
+                    "full_text": "",
+                    "original_text": "",
+                    "text_items": [],
+                    "detailed_items": [],
+                    "s3_url": s3_url
+                }
 
-# 비동기 메소드는 유지 (기존 코드와의 호환성을 위해)
-async def download_image_from_s3_async(self, s3_url: str) -> np.ndarray:
-    return self.download_image_from_s3(s3_url)
+    async def download_image_from_s3_async(self, s3_url: str) -> np.ndarray:
+        return self.download_image_from_s3(s3_url)
 
-async def extract_text_async(self, image: np.ndarray) -> List[Dict[str, Any]]:
-    return self.extract_text(image)
+    async def extract_text_async(self, image: np.ndarray) -> List[Dict[str, Any]]:
+        return self.extract_text(image)
 
-async def process_image_async(self, s3_url: str) -> Dict[str, Any]:
-    return self.process_image(s3_url)
+    async def process_image_async(self, s3_url: str) -> Dict[str, Any]:
+        return self.process_image(s3_url)
 ocr_service = OCRService()

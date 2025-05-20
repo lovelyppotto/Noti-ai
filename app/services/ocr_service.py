@@ -25,8 +25,10 @@ class OCRService:
                 use_gpu=True,       # GPU 사용
                 enable_mkldnn=True, # Intel CPU 최적화 (GPU가 없는 경우)
                 det_db_box_thresh=0.4,
-                rec_algorithm='CRNN',
+                rec_algorithm='SVTR_LCNet',
                 rec_image_shape="3,32,320",
+                ocr_server=True,
+                use_space_char=True
                 )
             logger.info("OCR 서비스가 성공적으로 초기화되었습니다.")
         except Exception as e:
@@ -66,73 +68,55 @@ class OCRService:
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """
-        OCR 정확도 향상을 위한 이미지 전처리
-        
-        Args:
-            image: 원본 OpenCV 이미지
-            
-        Returns:
-            np.ndarray: 전처리된 이미지
+        OCR 정확도 향상을 위한 이미지 전처리 (명암 보정, 대비 강화, 이진화 개선)
         """
         try:
-            # 원본 이미지 복사
+            # 원본 이미지 복사 및 그레이스케일 변환
             preprocessed = image.copy()
-            
-            # 컬러 이미지인 경우 그레이스케일로 변환
-            if len(preprocessed.shape) == 3:
-                gray = cv2.cvtColor(preprocessed, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = preprocessed
-                
-            # 이미지 크기 확인 및 리사이징 (너무 큰 이미지는 축소)
+            gray = cv2.cvtColor(preprocessed, cv2.COLOR_BGR2GRAY) if len(preprocessed.shape) == 3 else preprocessed
+
+            # 이미지 크기 조정 (과도한 해상도 방지)
             height, width = gray.shape[:2]
-            max_dimension = 1920  # 최대 차원
-            
+            max_dimension = 1920
             if max(height, width) > max_dimension:
                 scale = max_dimension / max(height, width)
-                new_width = int(width * scale)
-                new_height = int(height * scale)
-                gray = cv2.resize(gray, (new_width, new_height), interpolation=cv2.INTER_AREA)
-            
-            # 노이즈 제거
-            denoised = cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
-            
-            # 적응형 히스토그램 평활화를 통한 대비 개선
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            enhanced = clahe.apply(denoised)
-            
+                gray = cv2.resize(gray, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+
+            # 명암 반전 (흰 글자 대비가 낮을 경우)
+            inverted = cv2.bitwise_not(gray)
+
+            # CLAHE 대비 개선
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(inverted)
+
+            # 샤프닝 필터 적용
+            kernel_sharpen = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+            sharpened = cv2.filter2D(enhanced, -1, kernel_sharpen)
+
             # 적응형 이진화 (텍스트 강조)
-            # - blockSize: 픽셀 주변 영역 크기
-            # - C: 임계값 계산에 사용되는 상수
             binary = cv2.adaptiveThreshold(
-                enhanced, 
-                255, 
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                cv2.THRESH_BINARY, 
-                blockSize=11, 
-                C=2
+                sharpened,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=15,   # 조금 더 넓게
+                C=3             # 임계값 보정 (글자가 날아가는 경우 줄임)
             )
-            
-            # 형태학적 연산을 통한 텍스트 영역 개선
-            # 작은 노이즈 제거
+
+            # 형태학적 연산 (노이즈 제거 + 굵기 보정)
             kernel = np.ones((1, 1), np.uint8)
-            opening = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-            
-            # 텍스트 굵기 조정 (텍스트가 너무 가늘면 iterations 값을 늘림)
-            kernel = np.ones((1, 1), np.uint8)
-            dilation = cv2.dilate(opening, kernel, iterations=1)
-            
-            # 가우시안 블러를 사용한 가장자리 부드럽게
-            smoothed = cv2.GaussianBlur(dilation, (3, 3), 0)
-            
-            # 결과 이미지 반환
+            opened = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+            dilated = cv2.dilate(opened, kernel, iterations=1)
+
+            # 가장자리 부드럽게 (선택적)
+            smoothed = cv2.GaussianBlur(dilated, (3, 3), 0)
+
             return smoothed
-            
+
         except Exception as e:
             logger.error(f"이미지 전처리 중 오류 발생: {str(e)}")
-            # 전처리 실패 시 원본 이미지 반환
             return image
-    
+
     def try_multiple_preprocessings(self, image: np.ndarray) -> List[np.ndarray]:
         """
         여러 전처리 방법을 적용하여 이미지 세트 생성

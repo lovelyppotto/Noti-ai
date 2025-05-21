@@ -17,6 +17,17 @@ pipeline {
             credentialsId: 'GITLAB_CREDENTIALS_ID'
       }
     }
+  stage('Prepare cookies.txt in workspace') {
+    steps {
+      withCredentials([ file(credentialsId: 'ytdlp_cookies', variable: 'ytdlp_cookies') ]) {
+        sh '''
+          cp "${ytdlp_cookies}" app/cookies.txt
+          ls -l app/
+        '''
+      }
+    }
+  }
+
 
     stage('Build & Push Docker Image') {
       steps {
@@ -96,9 +107,25 @@ pipeline {
                 '''
               }
               
-              sh '''
-                  scp -o StrictHostKeyChecking=no ${ytdlp_cookies} ${SSH_USER}@${EC2_IP}:~/noti-ai/cookies.txt
-                '''
+              // cookies.txt 존재 여부 확인
+              def cookieExit = sh(script: '''
+                ssh -o StrictHostKeyChecking=no ${SSH_USER}@${EC2_IP} '
+                  mkdir -p ~/noti-ai/app
+                  if [ ! -f ~/noti-ai/app/cookies.txt ]; then
+                    echo "Uploading cookies.txt..."
+                    exit 101
+                  else
+                    echo "cookies.txt already exists, skipping upload."
+                    exit 0
+                  fi
+                '
+              ''', returnStatus: true)
+
+              if (cookieExit == 101) {
+                sh """
+                  scp -o StrictHostKeyChecking=no ${ytdlp_cookies} ${SSH_USER}@${EC2_IP}:~/noti-ai/app/cookies.txt
+                """
+              }
             }
           }
         }

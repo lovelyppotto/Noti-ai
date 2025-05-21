@@ -37,10 +37,11 @@ pipeline {
       }
     }
 
-    stage('Upload .env to EC2 (skip if exists)') {
+    stage('Upload .env and cookies to EC2 (skip if exists)') {
       steps {
         script {
           withCredentials([
+            file(credentialsId:'ytdlp_cookies', variable: 'COOKIE_FILE'),
             string(credentialsId: 'EC2_IP', variable: 'EC2_IP'),
             string(credentialsId: 'MONGODB_URI', variable: 'MONGODB_URI'),
             string(credentialsId: 'MONGODB_DB_NAME', variable: 'MONGODB_DB_NAME'),
@@ -68,7 +69,8 @@ pipeline {
               "OPENAI_API_KEY=${OPENAI_API_KEY}",
               "PROXY_URL_WEBSHARE=${PROXY_URL_WEBSHARE}",
               "HTTP_PROXY_WEBSHARE=${HTTP_PROXY_WEBSHARE}",
-              "HTTPS_PROXY_WEBSHARE=${HTTPS_PROXY_WEBSHARE}"
+              "HTTPS_PROXY_WEBSHARE=${HTTPS_PROXY_WEBSHARE}",
+              "COOKIE_FILE=${COOKIE_FILE}"
             ]
             writeFile file: '.env', text: envVars.join('\n')
 
@@ -91,6 +93,10 @@ pipeline {
               if (exitCode == 100) {
                 sh '''
                   scp -o StrictHostKeyChecking=no .env ${SSH_USER}@${EC2_IP}:~/noti-ai/.env
+                '''
+
+                sh '''
+                  scp -o StrictHostKeyChecking=no ${COOKIE_FILE} ${SSH_USER}@${EC2_IP}:~/noti-ai/cookies.txt
                 '''
               }
             }
@@ -122,6 +128,7 @@ services:
     volumes:
       - ./:/NOTI-AI
       - model-cache:/root/.cache/huggingface
+      - ./cookies.txt:/app/cookies.txt
     deploy:
       resources:
         reservations:
@@ -142,6 +149,7 @@ services:
     volumes:
       - ./:/NOTI-AI
       - model-cache:/root/.cache/huggingface
+      - ./cookies.txt:/app/cookies.txt
     deploy:
       resources:
         reservations:

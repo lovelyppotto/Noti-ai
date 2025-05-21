@@ -34,6 +34,9 @@ class YouTubeProcessor:
         else:
             logger.info("YouTubeProcessor가 프록시 없이 초기화되었습니다. (Webshare 프록시 URL이 설정되지 않음)")
 
+        if settings.YTDLP_COOKIE_FILE:
+            self.base_ydl_opts['cookiefile'] = settings.YTDLP_COOKIE_FILE
+
     def _get_current_ydl_opts(self) -> dict:
         """ yt-dlp 옵션을 현재 상태에 맞게 생성 (프록시만 적용) """
         return self.base_ydl_opts.copy()
@@ -105,6 +108,7 @@ class YouTubeProcessor:
             dict: 동영상 정보 (제목, ID, 등)
         """
         try:
+            info_opts = dict(self.base_ydl_opts)
             info_opts = {
                 'quiet': True,
                 'no_warnings': True,
@@ -112,29 +116,22 @@ class YouTubeProcessor:
                 'extract_flat': True,
             }
 
-
-            # User-Agent 설정 추가 (선택적)
-            info_opts['http_headers'] = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            }
-
             with yt_dlp.YoutubeDL(info_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
 
-                # 비디오 정보가 없는 경우 확인
-                if not info:
-                    logger.warning(f"비디오 정보를 가져올 수 없습니다: {url}")
-                    return {}
-
-                return {
-                    'id': info.get('id', ''),
-                    'title': info.get('title', ''),
-                    'duration': info.get('duration', 0),
-                    'upload_date': info.get('upload_date', ''),
-                    'channel': info.get('channel', ''),
-                    'channel_id': info.get('channel_id', ''),
-                    'view_count': info.get('view_count', 0),
-                }
+            # 비디오 정보가 없는 경우 확인
+            if not info:
+                logger.warning(f"비디오 정보를 가져올 수 없습니다: {url}")
+                return {}
+            return {
+                'id': info.get('id', ''),
+                'title': info.get('title', ''),
+                'duration': info.get('duration', 0),
+                'upload_date': info.get('upload_date', ''),
+                'channel': info.get('channel', ''),
+                'channel_id': info.get('channel_id', ''),
+                'view_count': info.get('view_count', 0),
+            }
         except Exception as e:
             logger.error(f"비디오 정보 가져오기 실패: {e}", exc_info=True)
             # 단순히 빈 딕셔너리 대신 오류 메시지와 함께 반환

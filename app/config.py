@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     VAD_MIN_SILENCE_DURATION_MS: int = 100
     VAD_SPEECH_PAD_MS: int = 30 # 음성 앞뒤로 추가할 패딩 (ms)
 
+    # 쿠키 설정
+    YTDLP_COOKIE_FILE: str = "/app/cookies.txt"
+
     # MongoDB 설정
     MONGODB_URI: str = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
     MONGODB_DB_NAME: str = os.environ.get("MONGODB_DB_NAME", "noti")

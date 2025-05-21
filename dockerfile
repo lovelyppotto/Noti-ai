@@ -8,7 +8,8 @@ RUN sed -i 's|archive.ubuntu.com|mirror.kakao.com|g' /etc/apt/sources.list
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    TZ=Asia/Seoul
+    TZ=Asia/Seoul\
+    YTDLP_COOKIE_FILE=/app/cookies.txt
 
 # 기본 패키지 설치
 RUN apt-get update && apt-get install -y --no-install-recommends \

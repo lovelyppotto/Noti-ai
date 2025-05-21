@@ -41,7 +41,7 @@ pipeline {
       steps {
         script {
           withCredentials([
-            file(credentialsId:'ytdlp_cookies', variable: 'COOKIE_FILE'),
+            file(credentialsId:'ytdlp_cookies', variable: 'ytdlp_cookies'),
             string(credentialsId: 'EC2_IP', variable: 'EC2_IP'),
             string(credentialsId: 'MONGODB_URI', variable: 'MONGODB_URI'),
             string(credentialsId: 'MONGODB_DB_NAME', variable: 'MONGODB_DB_NAME'),
@@ -70,7 +70,7 @@ pipeline {
               "PROXY_URL_WEBSHARE=${PROXY_URL_WEBSHARE}",
               "HTTP_PROXY_WEBSHARE=${HTTP_PROXY_WEBSHARE}",
               "HTTPS_PROXY_WEBSHARE=${HTTPS_PROXY_WEBSHARE}",
-              "COOKIE_FILE=${COOKIE_FILE}"
+              "ytdlp_cookies=${ytdlp_cookies}"
             ]
             writeFile file: '.env', text: envVars.join('\n')
 
@@ -94,11 +94,11 @@ pipeline {
                 sh '''
                   scp -o StrictHostKeyChecking=no .env ${SSH_USER}@${EC2_IP}:~/noti-ai/.env
                 '''
-
-                sh '''
-                  scp -o StrictHostKeyChecking=no ${COOKIE_FILE} ${SSH_USER}@${EC2_IP}:~/noti-ai/cookies.txt
-                '''
               }
+              
+              sh '''
+                  scp -o StrictHostKeyChecking=no ${ytdlp_cookies} ${SSH_USER}@${EC2_IP}:~/noti-ai/cookies.txt
+                '''
             }
           }
         }
